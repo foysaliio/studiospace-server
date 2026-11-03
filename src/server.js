@@ -9,7 +9,12 @@ const app = express();
 const port = process.env.PORT || 5000;
 const client = new MongoClient(process.env.MONGODB_URI);
 
-app.use(cors());
+app.use(
+  cors({
+    origin: process.env.CLIENT_URL,
+    credentials: true,
+  }),
+);
 
 export async function connectToMongoDB() {
   try {
