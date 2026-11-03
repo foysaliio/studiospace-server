@@ -1,5 +1,5 @@
 import express from "express";
-import { MongoClient } from "mongodb";
+import { MongoClient, ObjectId } from "mongodb";
 import "dotenv/config";
 
 const app = express();
@@ -59,6 +59,27 @@ app.get("/api/studios", async (req, res) => {
   } catch (err) {
     console.error("Failed to load studios:", err.message);
     res.status(500).json({ message: "Could not load studios." });
+  }
+});
+
+app.get("/api/studios/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid studio ID." });
+    }
+
+    const studio = await studios.findOne({ _id: new ObjectId(id) });
+
+    if (!studio) {
+      return res.status(404).json({ message: "Studio not found." });
+    }
+
+    res.json(studio);
+  } catch (err) {
+    console.error("Failed to load studio:", err.message);
+    res.status(500).json({ message: "Could not load studio." });
   }
 });
 
