@@ -1,10 +1,15 @@
 import express from "express";
 import { MongoClient, ObjectId } from "mongodb";
+import cors from "cors";
 import "dotenv/config";
+import { toNodeHandler } from "better-auth/node";
+import { createAuth } from "./auth.js";
 
 const app = express();
 const port = process.env.PORT || 5000;
 const client = new MongoClient(process.env.MONGODB_URI);
+
+app.use(cors());
 
 export async function connectToMongoDB() {
   try {
@@ -21,6 +26,12 @@ const connectedToMongoDB = await connectToMongoDB();
 
 const db = connectedToMongoDB.db(process.env.MONGODB_DB_NAME);
 const studios = db.collection("studios");
+
+const auth = createAuth(db, client);
+
+app.all("/api/auth/*splat", toNodeHandler(auth));
+
+app.use(express.json());
 
 app.get("/", (req, res) => {
   res.json({ message: "StudioSpace API is running" });
