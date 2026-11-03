@@ -83,6 +83,21 @@ app.get("/api/studios/:id", async (req, res) => {
   }
 });
 
+app.get("/api/studios/:id/reviews", async (req, res) => {
+  try {
+    const reviews = await db
+      .collection("reviews")
+      .find({ studioId: req.params.id })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.json(reviews);
+  } catch (err) {
+    console.error("Failed to load studio reviews:", err.message);
+    res.status(500).json({ message: "Could not load studio reviews." });
+  }
+});
+
 app.listen(port, () => {
   console.log(`StudioSpace API running on port ${port}`);
 });
