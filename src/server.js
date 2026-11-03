@@ -2,7 +2,7 @@ import express from "express";
 import { MongoClient, ObjectId } from "mongodb";
 import cors from "cors";
 import "dotenv/config";
-import { toNodeHandler } from "better-auth/node";
+import { fromNodeHeaders, toNodeHandler } from "better-auth/node";
 import { createAuth } from "./auth.js";
 
 const app = express();
@@ -111,6 +111,33 @@ app.get("/api/studios/:id/reviews", async (req, res) => {
   } catch (err) {
     console.error("Failed to load studio reviews:", err.message);
     res.status(500).json({ message: "Could not load studio reviews." });
+  }
+});
+
+app.get("/api/bookings/mine", async (req, res) => {
+  res.set("Cache-Control", "private, no-store");
+
+  try {
+    const session = await auth.api.getSession({
+      headers: fromNodeHeaders(req.headers),
+    });
+
+    if (!session?.user) {
+      return res.status(401).json({
+        message: "Please log in to view your bookings.",
+      });
+    }
+
+    const myBookings = await db
+      .collection("bookings")
+      .find({ userId: session.user.id })
+      .sort({ createdAt: -1, _id: -1 })
+      .toArray();
+
+    res.json(myBookings);
+  } catch (err) {
+    console.error("Failed to load bookings:", err.message);
+    res.status(500).json({ message: "Could not load your bookings." });
   }
 });
 
