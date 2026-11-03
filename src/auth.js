@@ -16,6 +16,13 @@ export function createAuth(db, client) {
     database: mongodbAdapter(db, { client }),
     trustedOrigins: [process.env.CLIENT_URL],
 
+    socialProviders: {
+      google: {
+        clientId: process.env.GOOGLE_CLIENT_ID,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      },
+    },
+
     emailAndPassword: {
       enabled: true,
       minPasswordLength: 6,
@@ -41,7 +48,9 @@ export function createAuth(db, client) {
           html: `
             <div style="padding:24px 12px;background:#f5f3ed;color:#25241f;font-family:Arial,sans-serif;">
               <div style="max-width:460px;margin:0 auto;padding:28px 24px;background:#fffefa;border:1px solid #dedbd2;">
-                <p style="margin:0 0 28px;font: bold 21px Georgia,serif;">StudioSpace</p>
+                <p style="margin:0 0 28px;font:bold 21px Georgia,serif;">
+                  StudioSpace
+                </p>
 
                 <h1 style="margin:0 0 12px;font:normal 32px/1.15 Georgia,serif;">
                   Reset your password
