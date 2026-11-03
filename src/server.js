@@ -41,6 +41,27 @@ app.get("/api/studios/featured", async (req, res) => {
   }
 });
 
+app.get("/api/studios", async (req, res) => {
+  try {
+    const category = req.query.category;
+    const filter = {};
+
+    if (typeof category === "string" && category.trim() !== "") {
+      filter.category = category.trim();
+    }
+
+    const studioList = await studios
+      .find(filter)
+      .sort({ createdAt: -1, _id: -1 })
+      .toArray();
+
+    res.json(studioList);
+  } catch (err) {
+    console.error("Failed to load studios:", err.message);
+    res.status(500).json({ message: "Could not load studios." });
+  }
+});
+
 app.listen(port, () => {
   console.log(`StudioSpace API running on port ${port}`);
 });
