@@ -4,6 +4,8 @@ import cors from "cors";
 import "dotenv/config";
 import { fromNodeHeaders, toNodeHandler } from "better-auth/node";
 import { createAuth } from "./auth.js";
+import cookieParser from "cookie-parser";
+import { createMutationAuth } from "./mutation-auth.js";
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -39,6 +41,12 @@ const auth = createAuth(db, client);
 app.all("/api/auth/*splat", toNodeHandler(auth));
 
 app.use(express.json());
+
+app.use(cookieParser());
+
+const mutationAuth = createMutationAuth(auth);
+
+app.post("/api/mutation-token", mutationAuth.issueCookie);
 
 app.get("/", (req, res) => {
   res.json({ message: "StudioSpace API is running" });
@@ -171,11 +179,9 @@ app.get("/api/bookings/mine", async (req, res) => {
   }
 });
 
-app.post("/api/bookings", async (req, res) => {
+app.post("/api/bookings", mutationAuth.requireCookie, async (req, res) => {
   try {
-    const session = await auth.api.getSession({
-      headers: fromNodeHeaders(req.headers),
-    });
+    const session = req.authSession;
 
     if (!session?.user) {
       return res.status(401).json({
@@ -265,59 +271,59 @@ app.post("/api/bookings", async (req, res) => {
   }
 });
 
-app.patch("/api/bookings/:id/cancel", async (req, res) => {
-  try {
-    const session = await auth.api.getSession({
-      headers: fromNodeHeaders(req.headers),
-    });
+app.patch(
+  "/api/bookings/:id/cancel",
+  mutationAuth.requireCookie,
+  async (req, res) => {
+    try {
+      const session = req.authSession;
 
-    if (!session?.user) {
-      return res.status(401).json({
-        message: "Please log in to cancel your booking.",
-      });
-    }
+      if (!session?.user) {
+        return res.status(401).json({
+          message: "Please log in to cancel your booking.",
+        });
+      }
 
-    const { id } = req.params;
+      const { id } = req.params;
 
-    if (!ObjectId.isValid(id)) {
-      return res.status(400).json({ message: "Invalid booking ID." });
-    }
+      if (!ObjectId.isValid(id)) {
+        return res.status(400).json({ message: "Invalid booking ID." });
+      }
 
-    const result = await db.collection("bookings").updateOne(
-      {
-        _id: new ObjectId(id),
-        userId: session.user.id,
-        status: "Pending",
-      },
-      {
-        $set: {
-          status: "Cancelled",
-          cancelledAt: new Date(),
+      const result = await db.collection("bookings").updateOne(
+        {
+          _id: new ObjectId(id),
+          userId: session.user.id,
+          status: "Pending",
         },
-      },
-    );
+        {
+          $set: {
+            status: "Cancelled",
+            cancelledAt: new Date(),
+          },
+        },
+      );
 
-    if (result.matchedCount === 0) {
-      return res.status(409).json({
-        message: "You can only cancel your own pending bookings.",
+      if (result.matchedCount === 0) {
+        return res.status(409).json({
+          message: "You can only cancel your own pending bookings.",
+        });
+      }
+
+      return res.json({
+        message: "Booking cancelled.",
+        status: "Cancelled",
       });
+    } catch (err) {
+      console.error("Failed to cancel booking:", err.message);
+      return res.status(500).json({ message: "Could not cancel booking." });
     }
+  },
+);
 
-    return res.json({
-      message: "Booking cancelled.",
-      status: "Cancelled",
-    });
-  } catch (err) {
-    console.error("Failed to cancel booking:", err.message);
-    return res.status(500).json({ message: "Could not cancel booking." });
-  }
-});
-
-app.post("/api/studios", async (req, res) => {
+app.post("/api/studios", mutationAuth.requireCookie, async (req, res) => {
   try {
-    const session = await auth.api.getSession({
-      headers: fromNodeHeaders(req.headers),
-    });
+    const session = req.authSession;
 
     if (!session?.user) {
       return res.status(401).json({
@@ -453,11 +459,9 @@ app.post("/api/studios", async (req, res) => {
   }
 });
 
-app.put("/api/studios/:id", async (req, res) => {
+app.put("/api/studios/:id", mutationAuth.requireCookie, async (req, res) => {
   try {
-    const session = await auth.api.getSession({
-      headers: fromNodeHeaders(req.headers),
-    });
+    const session = req.authSession;
 
     if (!session?.user) {
       return res.status(401).json({
@@ -623,11 +627,9 @@ app.put("/api/studios/:id", async (req, res) => {
   }
 });
 
-app.delete("/api/studios/:id", async (req, res) => {
+app.delete("/api/studios/:id", mutationAuth.requireCookie, async (req, res) => {
   try {
-    const session = await auth.api.getSession({
-      headers: fromNodeHeaders(req.headers),
-    });
+    const session = req.authSession;
 
     if (!session?.user) {
       return res.status(401).json({
