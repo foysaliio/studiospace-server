@@ -80,6 +80,34 @@ app.get("/api/studios", async (req, res) => {
   }
 });
 
+app.get("/api/studios/mine", async (req, res) => {
+  res.set("Cache-Control", "private, no-store");
+
+  try {
+    const session = await auth.api.getSession({
+      headers: fromNodeHeaders(req.headers),
+    });
+
+    if (!session?.user) {
+      return res.status(401).json({
+        message: "Please log in to view your studio listings.",
+      });
+    }
+
+    const myStudios = await studios
+      .find({ ownerId: session.user.id })
+      .sort({ createdAt: -1, _id: -1 })
+      .toArray();
+
+    return res.json(myStudios);
+  } catch (err) {
+    console.error("Failed to load your studio listings:", err.message);
+    return res.status(500).json({
+      message: "Could not load your studio listings.",
+    });
+  }
+});
+
 app.get("/api/studios/:id", async (req, res) => {
   try {
     const id = req.params.id;
@@ -422,6 +450,176 @@ app.post("/api/studios", async (req, res) => {
 
     console.error("Failed to add studio:", err.message);
     return res.status(500).json({ message: "Could not add studio." });
+  }
+});
+
+app.put("/api/studios/:id", async (req, res) => {
+  try {
+    const session = await auth.api.getSession({
+      headers: fromNodeHeaders(req.headers),
+    });
+
+    if (!session?.user) {
+      return res.status(401).json({
+        message: "Please log in to update your studio.",
+      });
+    }
+
+    if (!ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: "Invalid studio ID." });
+    }
+
+    const ownerFilter = {
+      _id: new ObjectId(req.params.id),
+      ownerId: session.user.id,
+    };
+
+    const current = await studios.findOne(ownerFilter);
+
+    if (!current) {
+      return res.status(404).json({
+        message: "Studio not found in your listings.",
+      });
+    }
+
+    const {
+      title,
+      category,
+      location,
+      overview,
+      imageUrl,
+      hourlyRate,
+      securityDeposit,
+      maxCapacity,
+      amenities,
+    } = req.body ?? {};
+
+    const requiredText = [title, location, overview, imageUrl];
+
+    if (
+      requiredText.some((value) => typeof value !== "string" || !value.trim())
+    ) {
+      return res.status(400).json({
+        message: "Enter a title, location, overview and image URL.",
+      });
+    }
+
+    const categories = [
+      "Photo Studio",
+      "Film Stage",
+      "Podcast Lounge",
+      "Music Suite",
+      "Workshop",
+    ];
+
+    if (!categories.includes(category)) {
+      return res
+        .status(400)
+        .json({ message: "Choose a valid studio category." });
+    }
+
+    if (!URL.canParse(imageUrl) || new URL(imageUrl).protocol !== "https:") {
+      return res
+        .status(400)
+        .json({ message: "Enter a valid HTTPS image URL." });
+    }
+
+    if (!Number.isFinite(hourlyRate) || hourlyRate <= 0) {
+      return res
+        .status(400)
+        .json({ message: "Hourly rate must be more than zero." });
+    }
+
+    if (!Number.isFinite(securityDeposit) || securityDeposit < 0) {
+      return res
+        .status(400)
+        .json({ message: "Security deposit must be zero or more." });
+    }
+
+    if (!Number.isSafeInteger(maxCapacity) || maxCapacity < 1) {
+      return res
+        .status(400)
+        .json({ message: "Capacity must be at least one person." });
+    }
+
+    if (
+      !Array.isArray(amenities) ||
+      amenities.some((item) => typeof item !== "string")
+    ) {
+      return res
+        .status(400)
+        .json({ message: "Enter amenities as a list of names." });
+    }
+
+    const cleanTitle = title.trim();
+    const cleanLocation = location.trim();
+
+    const listingKey = JSON.stringify([
+      session.user.id,
+      cleanTitle.toLowerCase(),
+      cleanLocation.toLowerCase(),
+    ]);
+
+    // Check other listings only when the studio's name or location changes.
+    const nameOrLocationChanged =
+      current.title.trim().toLowerCase() !== cleanTitle.toLowerCase() ||
+      current.location.trim().toLowerCase() !== cleanLocation.toLowerCase();
+
+    if (nameOrLocationChanged) {
+      const duplicate = await studios.findOne(
+        {
+          _id: { $ne: current._id },
+          ownerId: session.user.id,
+          title: cleanTitle,
+          location: cleanLocation,
+        },
+        {
+          collation: { locale: "en", strength: 2 },
+          projection: { _id: 1 },
+        },
+      );
+
+      if (duplicate) {
+        return res.status(409).json({
+          message: "You already have a studio with this name at this location.",
+        });
+      }
+    }
+
+    const changes = {
+      title: cleanTitle,
+      category,
+      location: cleanLocation,
+      overview: overview.trim(),
+      imageUrl: imageUrl.trim(),
+      hourlyRate,
+      securityDeposit,
+      maxCapacity,
+      amenities: amenities.map((item) => item.trim()).filter(Boolean),
+      updatedAt: new Date(),
+    };
+
+    // Older listings may predate the unique key. A rate-only edit still works.
+    if (nameOrLocationChanged || current.listingKey) {
+      changes.listingKey = listingKey;
+    }
+
+    const result = await studios.updateOne(ownerFilter, { $set: changes });
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ message: "Studio no longer exists." });
+    }
+
+    return res.json({ message: "Studio updated." });
+  } catch (err) {
+    if (err.code === 11000 && err.keyPattern?.listingKey) {
+      return res.status(409).json({
+        message: "You already have a studio with this name at this location.",
+      });
+    }
+
+    console.error("Failed to update studio:", err.message);
+    return res.status(500).json({ message: "Could not update studio." });
   }
 });
 
