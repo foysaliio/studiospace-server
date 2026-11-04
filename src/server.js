@@ -235,6 +235,56 @@ app.post("/api/bookings", async (req, res) => {
   }
 });
 
+app.patch("/api/bookings/:id/cancel", async (req, res) => {
+  try {
+    const session = await auth.api.getSession({
+      headers: fromNodeHeaders(req.headers),
+    });
+
+    if (!session?.user) {
+      return res.status(401).json({
+        message: "Please log in to cancel your booking.",
+      });
+    }
+
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid booking ID." });
+    }
+
+    const result = await db.collection("bookings").updateOne(
+      {
+        _id: new ObjectId(id),
+        userId: session.user.id,
+        status: "Pending",
+      },
+      {
+        $set: {
+          status: "Cancelled",
+          cancelledAt: new Date(),
+        },
+      },
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(409).json({
+        message: "You can only cancel your own pending bookings.",
+      });
+    }
+
+    return res.json({
+      message: "Booking cancelled.",
+      status: "Cancelled",
+    });
+  } catch (err) {
+    console.error("Failed to cancel booking:", err.message);
+    return res.status(500).json({ message: "Could not cancel booking." });
+  }
+});
+
+
+
 app.listen(port, () => {
   console.log(`StudioSpace API running on port ${port}`);
 });
