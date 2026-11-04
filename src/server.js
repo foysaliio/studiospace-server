@@ -623,6 +623,40 @@ app.put("/api/studios/:id", async (req, res) => {
   }
 });
 
+app.delete("/api/studios/:id", async (req, res) => {
+  try {
+    const session = await auth.api.getSession({
+      headers: fromNodeHeaders(req.headers),
+    });
+
+    if (!session?.user) {
+      return res.status(401).json({
+        message: "Please log in to delete your studio.",
+      });
+    }
+
+    if (!ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ message: "Invalid studio ID." });
+    }
+
+    const result = await studios.deleteOne({
+      _id: new ObjectId(req.params.id),
+      ownerId: session.user.id,
+    });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({
+        message: "Studio not found in your listings.",
+      });
+    }
+
+    return res.json({ message: "Studio deleted." });
+  } catch (err) {
+    console.error("Failed to delete studio:", err.message);
+    return res.status(500).json({ message: "Could not delete studio." });
+  }
+});
+
 app.listen(port, () => {
   console.log(`StudioSpace API running on port ${port}`);
 });
