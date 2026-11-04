@@ -32,6 +32,8 @@ const connectedToMongoDB = await connectToMongoDB();
 const db = connectedToMongoDB.db(process.env.MONGODB_DB_NAME);
 const studios = db.collection("studios");
 
+await studios.createIndex({ listingKey: 1 }, { unique: true, sparse: true });
+
 const auth = createAuth(db, client);
 
 app.all("/api/auth/*splat", toNodeHandler(auth));
@@ -283,7 +285,145 @@ app.patch("/api/bookings/:id/cancel", async (req, res) => {
   }
 });
 
+app.post("/api/studios", async (req, res) => {
+  try {
+    const session = await auth.api.getSession({
+      headers: fromNodeHeaders(req.headers),
+    });
 
+    if (!session?.user) {
+      return res.status(401).json({
+        message: "Please log in to add a studio.",
+      });
+    }
+
+    const {
+      title,
+      category,
+      location,
+      overview,
+      imageUrl,
+      hourlyRate,
+      securityDeposit,
+      maxCapacity,
+      amenities = [],
+    } = req.body ?? {};
+
+    const requiredText = [title, location, overview, imageUrl];
+
+    if (
+      requiredText.some((value) => typeof value !== "string" || !value.trim())
+    ) {
+      return res.status(400).json({
+        message: "Enter a title, location, overview and image URL.",
+      });
+    }
+
+    const categories = [
+      "Photo Studio",
+      "Film Stage",
+      "Podcast Lounge",
+      "Music Suite",
+      "Workshop",
+    ];
+
+    if (!categories.includes(category)) {
+      return res
+        .status(400)
+        .json({ message: "Choose a valid studio category." });
+    }
+
+    if (!URL.canParse(imageUrl) || new URL(imageUrl).protocol !== "https:") {
+      return res
+        .status(400)
+        .json({ message: "Enter a valid HTTPS image URL." });
+    }
+
+    if (!Number.isFinite(hourlyRate) || hourlyRate <= 0) {
+      return res
+        .status(400)
+        .json({ message: "Hourly rate must be more than zero." });
+    }
+
+    if (!Number.isFinite(securityDeposit) || securityDeposit < 0) {
+      return res
+        .status(400)
+        .json({ message: "Security deposit must be zero or more." });
+    }
+
+    if (!Number.isSafeInteger(maxCapacity) || maxCapacity < 1) {
+      return res
+        .status(400)
+        .json({ message: "Capacity must be at least one person." });
+    }
+
+    if (
+      !Array.isArray(amenities) ||
+      amenities.some((item) => typeof item !== "string")
+    ) {
+      return res
+        .status(400)
+        .json({ message: "Enter amenities as a list of names." });
+    }
+
+    const studio = {
+      title: title.trim(),
+      category,
+      location: location.trim(),
+      overview: overview.trim(),
+      imageUrl: imageUrl.trim(),
+      hourlyRate,
+      securityDeposit,
+      maxCapacity,
+      amenities: amenities.map((item) => item.trim()).filter(Boolean),
+      ownerId: session.user.id,
+      ownerName: session.user.name,
+      ownerEmail: session.user.email,
+      rating: 0,
+      createdAt: new Date(),
+    };
+
+    const existingStudio = await studios.findOne(
+      {
+        ownerId: session.user.id,
+        title: studio.title,
+        location: studio.location,
+      },
+      {
+        collation: { locale: "en", strength: 2 },
+        projection: { _id: 1 },
+      },
+    );
+
+    if (existingStudio) {
+      return res.status(409).json({
+        message: "You already have a studio with this name at this location.",
+      });
+    }
+
+    studio.listingKey = JSON.stringify([
+      session.user.id,
+      studio.title.toLowerCase(),
+      studio.location.toLowerCase(),
+    ]);
+
+    const result = await studios.insertOne(studio);
+
+    return res.status(201).json({
+      message: "Studio added.",
+      studioId: result.insertedId,
+    });
+  } catch (err) {
+    if (err.code === 11000 && err.keyPattern?.listingKey) {
+      return res.status(409).json({
+        message: "You already have a studio with this name at this location.",
+      });
+    }
+
+    console.error("Failed to add studio:", err.message);
+    return res.status(500).json({ message: "Could not add studio." });
+  }
+});
 
 app.listen(port, () => {
   console.log(`StudioSpace API running on port ${port}`);
