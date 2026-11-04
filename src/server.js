@@ -141,6 +141,100 @@ app.get("/api/bookings/mine", async (req, res) => {
   }
 });
 
+app.post("/api/bookings", async (req, res) => {
+  try {
+    const session = await auth.api.getSession({
+      headers: fromNodeHeaders(req.headers),
+    });
+
+    if (!session?.user) {
+      return res.status(401).json({
+        message: "Please log in to book a studio.",
+      });
+    }
+
+    const { studioId, startAt, hours } = req.body ?? {};
+
+    if (typeof studioId !== "string" || !ObjectId.isValid(studioId)) {
+      return res.status(400).json({ message: "Invalid studio ID." });
+    }
+
+    if (!Number.isSafeInteger(hours) || hours < 1) {
+      return res.status(400).json({
+        message: "Choose a duration of at least one whole hour.",
+      });
+    }
+
+    // The client sends the selected date and time using toISOString().
+    const startsAt = new Date(typeof startAt === "string" ? startAt : "");
+
+    if (
+      !Number.isFinite(startsAt.getTime()) ||
+      startsAt.toISOString() !== startAt
+    ) {
+      return res.status(400).json({ message: "Choose a valid start time." });
+    }
+
+    if (startsAt.getTime() <= Date.now()) {
+      return res.status(400).json({ message: "Choose a future start time." });
+    }
+
+    const endsAt = new Date(startsAt.getTime() + hours * 60 * 60 * 1000);
+
+    if (!Number.isFinite(endsAt.getTime())) {
+      return res.status(400).json({ message: "Choose a valid duration." });
+    }
+
+    const studio = await studios.findOne({ _id: new ObjectId(studioId) });
+
+    if (!studio) {
+      return res.status(404).json({ message: "Studio not found." });
+    }
+
+    const bookings = db.collection("bookings");
+    const studioKey = studio._id.toHexString();
+
+    const conflictingBooking = await bookings.findOne({
+      studioId: studioKey,
+      status: "Confirmed",
+      startAt: { $lt: endsAt },
+      endAt: { $gt: startsAt },
+    });
+
+    if (conflictingBooking) {
+      return res.status(409).json({
+        message:
+          "This studio is already booked during that time. Choose another slot.",
+      });
+    }
+
+    const booking = {
+      userId: session.user.id,
+      studioId: studioKey,
+      studioTitle: studio.title,
+      startAt: startsAt,
+      endAt: endsAt,
+      hours,
+      hourlyRate: studio.hourlyRate,
+      studioFee: Math.round(studio.hourlyRate * hours * 100) / 100,
+      securityDeposit: studio.securityDeposit,
+      status: "Pending",
+      createdAt: new Date(),
+    };
+
+    const result = await bookings.insertOne(booking);
+
+    return res.status(201).json({
+      message: "Booking request sent.",
+      bookingId: result.insertedId,
+      status: booking.status,
+    });
+  } catch (err) {
+    console.error("Failed to create booking:", err.message);
+    return res.status(500).json({ message: "Could not create your booking." });
+  }
+});
+
 app.listen(port, () => {
   console.log(`StudioSpace API running on port ${port}`);
 });
