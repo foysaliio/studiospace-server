@@ -52,14 +52,53 @@ app.get("/", (req, res) => {
   res.json({ message: "StudioSpace API is running" });
 });
 
+function getStudioCards(filter, limit) {
+  const pipeline = [{ $match: filter }, { $sort: { createdAt: -1, _id: -1 } }];
+
+  if (limit !== undefined) {
+    pipeline.push({ $limit: limit });
+  }
+
+  pipeline.push(
+    {
+      $lookup: {
+        from: "reviews",
+        let: { studioId: { $toString: "$_id" } },
+        pipeline: [
+          {
+            $match: {
+              $expr: { $eq: ["$studioId", "$$studioId"] },
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              averageRating: { $avg: "$rating" },
+            },
+          },
+        ],
+        as: "reviewStats",
+      },
+    },
+    {
+      $set: {
+        rating: {
+          $ifNull: [
+            { $arrayElemAt: ["$reviewStats.averageRating", 0] },
+            { $ifNull: ["$rating", 0] },
+          ],
+        },
+      },
+    },
+    { $unset: "reviewStats" },
+  );
+
+  return studios.aggregate(pipeline).toArray();
+}
+
 app.get("/api/studios/featured", async (req, res) => {
   try {
-    const featuredStudios = await studios
-      .find({})
-      .sort({ createdAt: -1, _id: -1 })
-      .limit(6)
-      .toArray();
-
+    const featuredStudios = await getStudioCards({}, 6);
     res.json(featuredStudios);
   } catch (err) {
     console.error("Failed to load featured studios:", err.message);
@@ -76,11 +115,7 @@ app.get("/api/studios", async (req, res) => {
       filter.category = category.trim();
     }
 
-    const studioList = await studios
-      .find(filter)
-      .sort({ createdAt: -1, _id: -1 })
-      .toArray();
-
+    const studioList = await getStudioCards(filter);
     res.json(studioList);
   } catch (err) {
     console.error("Failed to load studios:", err.message);
