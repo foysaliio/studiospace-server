@@ -756,6 +756,102 @@ app.delete("/api/studios/:id", mutationAuth.requireCookie, async (req, res) => {
   }
 });
 
+const savedStudios = db.collection("savedStudios");
+
+await savedStudios.createIndex({ userId: 1, studioId: 1 }, { unique: true });
+
+// Get the signed-in user's saved studio cards.
+app.get("/api/saved-studios", async (req, res) => {
+  res.set("Cache-Control", "private, no-store");
+
+  try {
+    const session = await auth.api.getSession({
+      headers: fromNodeHeaders(req.headers),
+    });
+
+    if (!session?.user) {
+      return res.status(401).json({
+        message: "Please log in to view your saved studios.",
+      });
+    }
+
+    const studioIds = await savedStudios.distinct("studioId", {
+      userId: session.user.id,
+    });
+
+    if (studioIds.length === 0) {
+      return res.json([]);
+    }
+
+    const cards = await getStudioCards({ _id: { $in: studioIds } });
+    return res.json(cards);
+  } catch (err) {
+    console.error("Failed to load saved studios:", err.message);
+    return res.status(500).json({ message: "Could not load saved studios." });
+  }
+});
+
+// Save a studio. Repeated requests keep a single entry.
+app.put(
+  "/api/saved-studios/:id",
+  mutationAuth.requireCookie,
+  async (req, res) => {
+    try {
+      if (!ObjectId.isValid(req.params.id)) {
+        return res.status(400).json({ message: "Invalid studio ID." });
+      }
+
+      const studioId = new ObjectId(req.params.id);
+      const studio = await studios.findOne(
+        { _id: studioId },
+        { projection: { _id: 1 } },
+      );
+
+      if (!studio) {
+        return res.status(404).json({ message: "Studio not found." });
+      }
+
+      const userId = req.authSession.user.id;
+
+      await savedStudios.updateOne(
+        { userId, studioId },
+        { $setOnInsert: { savedAt: new Date() } },
+        { upsert: true },
+      );
+
+      return res.json({ saved: true });
+    } catch (err) {
+      console.error("Failed to save studio:", err.message);
+      return res.status(500).json({ message: "Could not save this studio." });
+    }
+  },
+);
+
+// Remove a studio from this user's wishlist.
+app.delete(
+  "/api/saved-studios/:id",
+  mutationAuth.requireCookie,
+  async (req, res) => {
+    try {
+      if (!ObjectId.isValid(req.params.id)) {
+        return res.status(400).json({ message: "Invalid studio ID." });
+      }
+
+      await savedStudios.deleteOne({
+        userId: req.authSession.user.id,
+        studioId: new ObjectId(req.params.id),
+      });
+
+      return res.json({ saved: false });
+    } catch (err) {
+      console.error("Failed to remove saved studio:", err.message);
+      return res.status(500).json({
+        message: "Could not remove this studio from your saved list.",
+      });
+    }
+  },
+);
+
 app.listen(port, () => {
   console.log(`StudioSpace API running on port ${port}`);
 });
