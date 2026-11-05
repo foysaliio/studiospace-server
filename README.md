@@ -2,127 +2,179 @@
 
 # StudioSpace API
 
-### The booking and listing service behind StudioSpace
+### The reservation and listing service behind StudioSpace
 
-An Express API for a peer-to-peer creative studio marketplace. It serves the public studio catalogue and manages the listings, reservations, reviews, and saved spaces associated with user accounts.
+Every studio card starts with a host’s listing. Every reservation connects a member, a room and a time slot. This Express API keeps those records in MongoDB and controls who can read or change them.
 
-[**Client repository**](https://github.com/foysaliio/studiospace-client) · [**API overview**](#api-overview) · [**Run locally**](#run-locally)
+[**API Status**](https://studiospace-server-house.vercel.app) · [**Featured Studios JSON**](https://studiospace-server-house.vercel.app/api/studios/featured) · [**Live Website**](https://studiospace-client-web.vercel.app) · [**Client Repository**](https://github.com/foysaliio/studiospace-client)
 
-![Node.js](https://img.shields.io/badge/Node.js-24-285C38?style=flat-square&logo=nodedotjs&logoColor=white)
-![Express](https://img.shields.io/badge/Express-JavaScript-252525?style=flat-square&logo=express&logoColor=white)
-![MongoDB](https://img.shields.io/badge/MongoDB-Atlas-176B45?style=flat-square&logo=mongodb&logoColor=white)
-![Better Auth](https://img.shields.io/badge/Better_Auth-Sessions-24241F?style=flat-square)
+![Node.js](https://img.shields.io/badge/Node.js-244B30?style=for-the-badge&logo=nodedotjs&logoColor=white)
+![Express](https://img.shields.io/badge/Express_5-222222?style=for-the-badge&logo=express&logoColor=white)
+![MongoDB](https://img.shields.io/badge/MongoDB_Atlas-116149?style=for-the-badge&logo=mongodb&logoColor=white)
+![Better Auth](https://img.shields.io/badge/Better_Auth-242424?style=for-the-badge)
+![Vercel](https://img.shields.io/badge/Vercel-171717?style=for-the-badge&logo=vercel&logoColor=white)
 
 </div>
 
 ---
 
-## What the API handles
+## Try the API in one request
 
-| Area                 | Responsibility                                                                                    |
-| -------------------- | ------------------------------------------------------------------------------------------------- |
-| **Studio catalogue** | Return featured studios, filter listings by category, and load an individual space                |
-| **Host listings**    | Validate studio details, associate listings with their owner, and handle updates and deletion     |
-| **Reservations**     | Record booking requests, return the current user's reservations, and handle pending cancellations |
-| **Reviews**          | Store ratings and comments and return reviews for the requested studio                            |
-| **Saved studios**    | Add or remove a studio from the signed-in user's shortlist                                        |
-| **Authentication**   | Manage email/password and Google sign-in through Better Auth and its MongoDB adapter              |
+The public catalogue can be explored directly from a browser or terminal. This request returns studios in the **Podcast Lounge** category:
 
-## API overview
-
-The default local base URL is `http://localhost:5000`.
-
-| Method   | Endpoint                   | Purpose                                         |
-| -------- | -------------------------- | ----------------------------------------------- |
-| `GET`    | `/api/studios/featured`    | Return up to six featured studio cards          |
-| `GET`    | `/api/studios`             | List studios, optionally filtered by `category` |
-| `GET`    | `/api/studios/:id`         | Get one studio's details                        |
-| `GET`    | `/api/studios/:id/reviews` | Read studio reviews, newest first               |
-| `POST`   | `/api/studios/:id/reviews` | Submit a studio review                          |
-| `GET`    | `/api/studios/mine`        | List studios owned by the signed-in user        |
-| `POST`   | `/api/studios`             | Create a studio listing                         |
-| `PUT`    | `/api/studios/:id`         | Update a studio listing                         |
-| `DELETE` | `/api/studios/:id`         | Delete a listing owned by the current user      |
-| `POST`   | `/api/bookings`            | Request a reservation                           |
-| `GET`    | `/api/bookings/mine`       | Get the current user's bookings, newest first   |
-| `GET`    | `/api/saved-studios`       | Load the current user's saved studio cards      |
-| `PUT`    | `/api/saved-studios/:id`   | Save a studio                                   |
-| `DELETE` | `/api/saved-studios/:id`   | Remove a saved studio                           |
-
-For example, open this URL locally to browse podcast spaces:
-
-```text
-http://localhost:5000/api/studios?category=Podcast%20Lounge
+```bash
+curl "https://studiospace-server-house.vercel.app/api/studios?category=Podcast%20Lounge"
 ```
 
-## How a listing is created
+Studio IDs in the response can be used to retrieve a listing and its reviews:
 
-1. The API checks the user's session and mutation cookie.
-2. It validates the title, category, location, overview, HTTPS image URL, hourly rate, deposit, capacity, and amenities.
-3. It takes the owner's ID, name, and email from the authenticated session.
-4. It checks whether that owner already has a studio with the same name and location.
-5. A successful insert returns `201` with the new studio ID. A duplicate listing returns `409`.
+```text
+GET /api/studios/<studio-id>
+GET /api/studios/<studio-id>/reviews
+```
 
-The client can also upload a cover photo through its Next.js ImgBB route. The Express API receives the resulting image URL and stores it with the listing.
+For a quick deployment check, open the [API root](https://studiospace-server-house.vercel.app). Its response is:
 
-## Sessions and protected requests
+```json
+{ "message": "StudioSpace API is running" }
+```
 
-Better Auth manages the user session. For protected mutations, the StudioSpace client also obtains a short-lived JWT cookie named `studiospace_mutation`.
+## How a reservation moves through the system
 
-| Check            | Behaviour                                                                    |
-| ---------------- | ---------------------------------------------------------------------------- |
-| Request origin   | Must match the configured client origin                                      |
-| Mutation cookie  | HTTP-only, scoped to `/api`, with a five-minute lifetime                     |
-| Token validation | Checks the signature, issuer, audience, and expiration                       |
-| Session binding  | The token's user ID and session ID must match the active Better Auth session |
-| Ownership        | Listing deletion matches both the studio ID and the current user's ID        |
+1. **Discover.** The public catalogue supplies studio cards. A detail request returns the studio’s rate, deposit, capacity, amenities and host information.
+2. **Request.** A signed-in member chooses a start time and duration. The API checks for overlap with a confirmed session before creating a pending reservation.
+3. **Track.** The member’s booking endpoint returns their reservations for the dashboard and **My bookings** page.
+4. **Cancel.** A member can cancel their own pending reservation. The API records the cancelled status so the reservation can still appear in their history.
 
-A disallowed origin receives `403`. An allowed-origin mutation with missing or expired authorization receives `401`. These checks are implemented in `src/mutation-auth.js`.
+A saved studio follows a separate path. Saving a room adds it to the member’s shortlist and leaves its booking schedule available.
 
-## Run locally
+## Data responsibilities
 
-Use Node.js 24, npm, and a MongoDB database. The example uses port `5000` for Express and port `3000` for the Next.js client.
+| Area             | What the server manages                                                           |
+| ---------------- | --------------------------------------------------------------------------------- |
+| Studio catalogue | Public listings, category filtering, featured cards and individual studio details |
+| Host listings    | Creation, ownership, updates, duplicate checks and deletion                       |
+| Reservations     | Session timing, booking status, member history and pending cancellation           |
+| Reviews          | Studio-specific comments, reviewer names and ratings from 1 to 5                  |
+| Saved studios    | A personal shortlist that members can add to or remove from                       |
+| Accounts         | Email/password access, Google sign-in, persistent sessions and password recovery  |
 
-1. Clone the server and install dependencies.
+## API reference
 
-   ```bash
-   git clone https://github.com/foysaliio/studiospace-server.git
-   cd studiospace-server
-   npm install
-   ```
+### Studio catalogue and host listings
 
-2. Create `.env` in the server repository root. Set the MongoDB connection variable used by `src/server.js` to your connection string. Configure the database name as well if your setup reads it from the environment.
+| Method   | Endpoint                | Access | Purpose                                            |
+| -------- | ----------------------- | ------ | -------------------------------------------------- |
+| `GET`    | `/api/studios`          | Public | Browse listings, optionally filtered by `category` |
+| `GET`    | `/api/studios/featured` | Public | Load featured studio cards                         |
+| `GET`    | `/api/studios/:id`      | Public | Read an individual studio                          |
+| `GET`    | `/api/studios/mine`     | Member | Read the signed-in host’s listings                 |
+| `POST`   | `/api/studios`          | Member | Publish a studio                                   |
+| `PUT`    | `/api/studios/:id`      | Owner  | Update an owned listing                            |
+| `DELETE` | `/api/studios/:id`      | Owner  | Remove an owned listing                            |
 
-3. Add the server and authentication settings.
+### Reservations, reviews and saved studios
 
-   ```env
-   PORT=5000
-   CLIENT_URL=http://localhost:3000
-   BETTER_AUTH_URL=http://localhost:5000
-   BETTER_AUTH_SECRET=replace_with_a_random_auth_secret
-   MUTATION_JWT_SECRET=replace_with_a_separate_random_jwt_secret
-   GOOGLE_CLIENT_ID=your_google_oauth_client_id
-   GOOGLE_CLIENT_SECRET=your_google_oauth_client_secret
-   ```
+| Method   | Endpoint                   | Access        | Purpose                           |
+| -------- | -------------------------- | ------------- | --------------------------------- |
+| `POST`   | `/api/bookings`            | Member        | Request a studio session          |
+| `GET`    | `/api/bookings/mine`       | Member        | Retrieve personal booking history |
+| `PATCH`  | `/api/bookings/:id/cancel` | Booking owner | Cancel a pending reservation      |
+| `GET`    | `/api/studios/:id/reviews` | Public        | Read reviews for one studio       |
+| `POST`   | `/api/studios/:id/reviews` | Member        | Submit a rating and comment       |
+| `GET`    | `/api/saved-studios`       | Member        | Retrieve the personal shortlist   |
+| `PUT`    | `/api/saved-studios/:id`   | Member        | Save a studio                     |
+| `DELETE` | `/api/saved-studios/:id`   | Member        | Remove a saved studio             |
 
-   For the password-reset email integration, configure `GMAIL_USER` and `GMAIL_APP_PASSWORD` in the server environment.
+Better Auth handles account routes under `/api/auth`. The client uses `POST /api/mutation-token` to obtain a short-lived cookie before protected writes.
 
-4. Start the API from the repository root.
+## What the server checks
 
-   ```bash
-   node src/server.js
-   ```
+**When a host publishes a listing**, the server validates the required text fields, category, HTTPS cover image URL, rates, deposit, capacity and amenities. The hourly rate must be positive, the deposit can be zero and capacity must be a positive whole number. The server takes the owner identity from the signed-in session.
 
-5. Open **http://localhost:5000** to check the server, then open **http://localhost:5000/api/studios** to check the catalogue endpoint. An empty database can return an empty array. Publish a listing through the client to add your first studio.
+**When a host edits or deletes a studio**, the operation is scoped to the studio ID and owner. Duplicate listing checks use the owner, title and location, allowing different hosts to publish their own spaces.
 
-## Source guide
+**When a member changes data**, the mutation middleware checks the request origin and verifies a five-minute HTTP-only JWT. It then matches the token’s user and session IDs against the active Better Auth session before handing the request to the route.
 
-| File                   | What to look for                                                               |
-| ---------------------- | ------------------------------------------------------------------------------ |
-| `src/server.js`        | Express configuration, MongoDB access, and application routes                  |
-| `src/auth.js`          | Better Auth configuration, MongoDB adapter, Google sign-in, and email settings |
-| `src/mutation-auth.js` | Mutation cookie issuance and request verification                              |
+**When a member requests a password reset**, Better Auth creates a time-limited link and Nodemailer sends it through Gmail. The reset link is valid for 30 minutes.
+
+## Project structure
+
+```text
+src/
+├── server.js          Express routes, database access and request validation
+├── auth.js            Better Auth, Google sign-in and password-reset email
+└── mutation-auth.js   Origin checks and session-bound mutation cookies
+```
+
+The [Next.js client](https://github.com/foysaliio/studiospace-client) owns the interface, invoice downloads and ImgBB upload handler. The Express server stores and serves the resulting studio image URL.
+
+## Run the server locally
+
+```bash
+git clone https://github.com/foysaliio/studiospace-server.git
+cd studiospace-server
+npm ci
+```
+
+Create `.env` beside `package.json` and supply your own values:
+
+```dotenv
+MONGODB_URI=your_mongodb_connection_string
+MONGODB_DB_NAME=studiospace
+
+BETTER_AUTH_SECRET=your_generated_auth_secret
+BETTER_AUTH_URL=http://localhost:5000
+CLIENT_URL=http://localhost:3000
+MUTATION_JWT_SECRET=your_generated_mutation_secret
+
+GOOGLE_CLIENT_ID=your_google_oauth_client_id
+GOOGLE_CLIENT_SECRET=your_google_oauth_client_secret
+
+GMAIL_USER=your_gmail_address
+GMAIL_APP_PASSWORD=your_gmail_app_password
+```
+
+Use two independently generated secrets for `BETTER_AUTH_SECRET` and `MUTATION_JWT_SECRET`. For Google sign-in during local development, add the following entry to the OAuth client’s **Authorized redirect URIs**:
+
+```text
+http://localhost:5000/api/auth/callback/google
+```
+
+Start the development server:
+
+```bash
+npm run dev
+```
+
+Open [localhost:5000](http://localhost:5000) for the status response or [the local catalogue](http://localhost:5000/api/studios) for a database-backed request. Start the client on port `3000` to try a complete booking.
+
+| Command       | Purpose                                        |
+| ------------- | ---------------------------------------------- |
+| `npm run dev` | Run the server with Nodemon during development |
+| `npm start`   | Run the Express entry point with Node.js       |
+
+## Production configuration
+
+The Express deployment serves the API. The frontend domain is the public entry point for browser authentication because Next.js forwards those requests to Express.
+
+| Setting                        | Production value                                                     |
+| ------------------------------ | -------------------------------------------------------------------- |
+| Express deployment             | `https://studiospace-server-house.vercel.app`                        |
+| `CLIENT_URL`                   | `https://studiospace-client-web.vercel.app`                          |
+| `BETTER_AUTH_URL`              | `https://studiospace-client-web.vercel.app`                          |
+| Google authorized redirect URI | `https://studiospace-client-web.vercel.app/api/auth/callback/google` |
+
+## Verify the deployment
+
+| Check                                                  | Expected result                                       |
+| ------------------------------------------------------ | ----------------------------------------------------- |
+| Open the API root                                      | A JSON message identifies the StudioSpace API         |
+| Open `/api/studios/featured`                           | A JSON array of featured studio cards                 |
+| Open `/api/bookings/mine` while signed out             | `401 Unauthorized`                                    |
+| Sign in from the live client and refresh the dashboard | The member’s workspace remains accessible             |
+| Save a studio, then open **Saved studios**             | The selected studio appears in the member’s shortlist |
 
 ---
 
-Built by [Foysal](https://github.com/foysaliio) · [StudioSpace client](https://github.com/foysaliio/studiospace-client)
+**Built by Foysal** · [Portfolio](https://foysaliio.vercel.app/) · [GitHub](https://github.com/foysaliio)
