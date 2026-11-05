@@ -152,6 +152,68 @@ app.get("/api/studios/:id/reviews", async (req, res) => {
   }
 });
 
+app.post(
+  "/api/studios/:id/reviews",
+  mutationAuth.requireCookie,
+  async (req, res) => {
+    try {
+      const session = await auth.api.getSession({
+        headers: fromNodeHeaders(req.headers),
+      });
+
+      if (!session?.user) {
+        return res
+          .status(401)
+          .json({ message: "Please log in to leave a review." });
+      }
+
+      const { id } = req.params;
+      const { rating, comment } = req.body ?? {};
+
+      if (!/^[a-f\d]{24}$/i.test(id)) {
+        return res.status(400).json({ message: "Invalid studio ID." });
+      }
+
+      if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+        return res
+          .status(400)
+          .json({ message: "Choose a rating from 1 to 5." });
+      }
+
+      const text = typeof comment === "string" ? comment.trim() : "";
+
+      if (!text || text.length > 1000) {
+        return res.status(400).json({
+          message: "Write a review between 1 and 1000 characters.",
+        });
+      }
+
+      const studio = await db
+        .collection("studios")
+        .findOne({ _id: new ObjectId(id) }, { projection: { _id: 1 } });
+
+      if (!studio) {
+        return res.status(404).json({ message: "Studio not found." });
+      }
+
+      const review = {
+        studioId: studio._id.toHexString(),
+        reviewerName: session.user.name,
+        rating,
+        comment: text,
+        createdAt: new Date(),
+      };
+
+      const result = await db.collection("reviews").insertOne(review);
+
+      return res.status(201).json({ _id: result.insertedId, ...review });
+    } catch (err) {
+      console.error("Failed to save studio review:", err.message);
+      return res.status(500).json({ message: "Could not save your review." });
+    }
+  },
+);
+
 app.get("/api/bookings/mine", async (req, res) => {
   res.set("Cache-Control", "private, no-store");
 
